@@ -1,7 +1,9 @@
 ﻿using System.IO;
 using System.Numerics;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using MapType = Lumina.Excel.Sheets.MapType;
 
 namespace SimpleMapTracker;
 
@@ -35,14 +37,13 @@ public class PlayerMapState {
         }
     }
     
-    public MapLinkPayload? CreateMapLink() {
+    public unsafe void OpenMapToLocation() {
         var location = TreasureSpot?.Location.ValueNullable;
         var map = location?.Map.ValueNullable;
         var territory = map?.TerritoryType.ValueNullable;
-        if (territory == null || location == null || map == null) return null;
-        var scale = map.Value.SizeFactor / 100f;
-        var xPosition = 41f / scale * ((location.Value.X * scale + 1024f) / 2048f) + 1;
-        var yPosition = 41f / scale * ((location.Value.Z * scale + 1024f) / 2048f) + 1;
-        return new MapLinkPayload(territory.Value.RowId, map.Value.RowId, xPosition, yPosition);
+        if (territory == null || location == null || map == null) return;
+        AgentMap.Instance()->FlagMarkerCount = 0; // Clear marker
+        AgentMap.Instance()->SetFlagMapMarker(territory.Value.RowId, map.Value.RowId, location.Value.X, location.Value.Z, 60354);
+        AgentMap.Instance()->OpenMap(map.Value.RowId, territory.Value.RowId, $"{Name}'s Map");
     }
 }

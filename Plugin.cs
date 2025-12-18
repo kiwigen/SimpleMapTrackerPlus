@@ -272,13 +272,9 @@ public unsafe class Plugin : Window, IDalamudPlugin {
                             ImGui.Text(FontAwesomeIcon.MapMarked.ToIconString());
                         }
 
+                        
                         if (ImGui.IsItemClicked() && p.TreasureSpot != null) {
-                            var link = p.CreateMapLink();
-                            if (link == null) {
-                                Log.Warning("Failed to open map.");
-                            } else {
-                                gameGui.OpenMapWithMapLink(link);
-                            }
+                            p.OpenMapToLocation();
                         }
                     }
 
