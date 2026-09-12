@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Threading.Tasks;
+using Dalamud.Plugin.Services;
 using Newtonsoft.Json;
 using Websocket.Client;
 
@@ -21,7 +22,6 @@ public class MapIdentifier {
 public class ShareData : MapIdentifier {
     [JsonProperty("user")] public string User = string.Empty;
     [JsonProperty("party")] public Dictionary<string, MapIdentifier?> Party = new();
-
     public override string ToString() {
         return $"{User} - {TreasureHuntRankId}.{TreasureSpot}";
     }
@@ -36,7 +36,8 @@ public class Share : IDisposable, IAsyncDisposable {
     public ShareData Data { get; } = new();
     private string sharedData = string.Empty;
     private readonly Stopwatch updated = Stopwatch.StartNew();
-
+    private IPluginLog Log => Plugin.Log;
+    
     public void Setup() {
         client = new WebsocketClient(new Uri($"{(Plugin.Config.UseSsl ? "wss://" : "ws://")}{Plugin.Config.Server}"));
         client.ReconnectionHappened.Subscribe(OnConnected);
@@ -54,12 +55,17 @@ public class Share : IDisposable, IAsyncDisposable {
     }
 
     public void Update(string user, uint rank, ushort spot, IEnumerable<string> party) {
+        if(!IsConnected)
+            Setup();
+        
         Data.User = user;
         Data.TreasureHuntRankId = rank;
         Data.TreasureSpot = spot;
-        foreach (var member in Data.Party.Keys.Where(p => !party.Contains(p))) Data.Party.Remove(member);
+        foreach (var member in Data.Party.Keys.Where(p => !party.Contains(p))) 
+            Data.Party.Remove(member);
         foreach (var member in party) Data.Party.TryAdd(member, null);
         var dataJson = JsonConvert.SerializeObject(Data);
+        Log.Debug($"Updated JSON to send: {dataJson}");
         if (updated.ElapsedMilliseconds <= 30000 && sharedData == dataJson) return; 
         sharedData = dataJson;
         updated.Restart();
@@ -67,6 +73,7 @@ public class Share : IDisposable, IAsyncDisposable {
     }
 
     private void OnMessage(ResponseMessage msg) {
+        Log.Information($"Received: {msg}");
         if (msg.Text == null) return;
         try {
             var updateData = JsonConvert.DeserializeObject<ShareData>(msg.Text);
@@ -94,11 +101,27 @@ public class Share : IDisposable, IAsyncDisposable {
         client?.Stop(WebSocketCloseStatus.NormalClosure, "Closing").Wait();
         client?.Dispose();
     }
-
+    
     public async ValueTask DisposeAsync() {
         if (client != null) {
             await client.Stop(WebSocketCloseStatus.NormalClosure, "Closing");
             client.Dispose();
+        }
+    }
+
+    public async Task DisconnectAsync()
+    {
+        if(client != null && IsConnected)
+        {
+            await client.Stop(WebSocketCloseStatus.NormalClosure, "Closing");
+        }
+    }
+
+    public void Disconnect()
+    {
+        if (client != null && IsConnected)
+        {
+            client?.Stop(WebSocketCloseStatus.NormalClosure, "Closing");
         }
     }
 }
