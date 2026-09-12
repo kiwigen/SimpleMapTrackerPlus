@@ -34,8 +34,11 @@ public unsafe class Plugin : Window, IDalamudPlugin {
     private readonly ICommandManager commandManager;
     private readonly WindowSystem windowSystem;
     private readonly ConfigWindow configWindow;
+    private readonly IPartyList partyList;
 
-    public Plugin(IDalamudPluginInterface pluginInterface, IFramework framework, IDataManager dataManager, IGameInteropProvider gameInteropProvider, IPluginLog pluginLog, IGameGui gameGui, ICommandManager commandManager) : base("Simple Map Tracker", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoResize) {
+    private const int MinimumPartySizeForConnection = 3;
+    
+    public Plugin(IDalamudPluginInterface pluginInterface, IFramework framework, IDataManager dataManager, IGameInteropProvider gameInteropProvider, IPluginLog pluginLog, IGameGui gameGui, ICommandManager commandManager, IPartyList partyList) : base("Simple Map Tracker", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoResize) {
         Config = pluginInterface.GetPluginConfig() as Config ?? new Config();
         configWindow = new ConfigWindow(Config, pluginInterface);
         RespectCloseHotkey = false;
@@ -43,6 +46,7 @@ public unsafe class Plugin : Window, IDalamudPlugin {
         this.gameGui = gameGui;
         this.commandManager = commandManager;
         DataManager = dataManager;
+        this.partyList = partyList;
 
         Log = pluginLog;
         GameFunction = new GameFunction(gameInteropProvider);
@@ -64,7 +68,8 @@ public unsafe class Plugin : Window, IDalamudPlugin {
             ShowTooltip = () => ImGui.SetTooltip("Open Config")
         }];
         
-        if (Config.ConnectOnStartup) Share.Setup();
+        if (Config.ConnectOnStartup && partyList.Length >= MinimumPartySizeForConnection) 
+            Share.Setup();
         
         resetMapMarkersHook = gameInteropProvider.HookFromAddress<AgentMap.Delegates.ResetMapMarkers>(AgentMap.Addresses.ResetMapMarkers.Value, ResetMapMarkersDetour);
         resetMapMarkersHook.Enable();
@@ -291,12 +296,10 @@ public unsafe class Plugin : Window, IDalamudPlugin {
         using (ImRaii.PushColor(ImGuiCol.ButtonHovered, 0, Share.IsSetup)) {
             var buttonSize = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeightWithSpacing());
             if (!Share.IsSetup) {
-                if (ImGui.Button("Connect", buttonSize)) {
+                if (ImGui.Button("Connect", buttonSize) && partyList.Length >= MinimumPartySizeForConnection)
                     Share.Setup();
-                }
-            } else if (!Share.IsConnected) {
+            } else if (!Share.IsConnected) 
                 ImGui.Button("Disconnected", buttonSize);
-            }
         }
     }
 
