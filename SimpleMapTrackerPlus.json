@@ -1,0 +1,9 @@
+{
+  "Author": "Caraxi, Avi",
+  "Name": "Simple Map Tracker+",
+  "RepoUrl": "https://github.com/kiwigen/SimpleMapTrackerPlus",
+  "Punchline": "Automatically keep track of treasure hunt maps within your party.",
+  "Description": "Utilizes an external server to share your current treasure hunt target with your party members. Server connection is only established with a minimum party size of 4",
+  "InternalName": "SimpleMapTracker",
+  "ApplicableVersion": "any"
+}
