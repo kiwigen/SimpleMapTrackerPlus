@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
+using Dalamud.Game.Inventory;
 using Dalamud.Hooking;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
@@ -19,6 +20,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Group;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.Interop;
+using Lumina.Excel.Sheets;
 
 namespace SimpleMapTracker;
 
@@ -35,10 +37,10 @@ public unsafe class Plugin : Window, IDalamudPlugin {
     private readonly WindowSystem windowSystem;
     private readonly ConfigWindow configWindow;
     private readonly IPartyList partyList;
-
+    private readonly IGameInventory  gameInventory;
     private const int MinimumPartySizeForConnection = 3;
     
-    public Plugin(IDalamudPluginInterface pluginInterface, IFramework framework, IDataManager dataManager, IGameInteropProvider gameInteropProvider, IPluginLog pluginLog, IGameGui gameGui, ICommandManager commandManager, IPartyList partyList) : base("Simple Map Tracker", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoResize) {
+    public Plugin(IDalamudPluginInterface pluginInterface, IFramework framework, IDataManager dataManager, IGameInteropProvider gameInteropProvider, IPluginLog pluginLog, IGameGui gameGui, IGameInventory gameInventory, ICommandManager commandManager, IPartyList partyList) : base("Simple Map Tracker", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoResize) {
         Config = pluginInterface.GetPluginConfig() as Config ?? new Config();
         configWindow = new ConfigWindow(Config, pluginInterface);
         RespectCloseHotkey = false;
@@ -47,8 +49,9 @@ public unsafe class Plugin : Window, IDalamudPlugin {
         this.commandManager = commandManager;
         DataManager = dataManager;
         this.partyList = partyList;
-
+        this.gameInventory = gameInventory;
         Log = pluginLog;
+        
         GameFunction = new GameFunction(gameInteropProvider);
 
         windowSystem = new WindowSystem(nameof(SimpleMapTracker));
@@ -130,7 +133,15 @@ public unsafe class Plugin : Window, IDalamudPlugin {
             var groupId2 = GroupManager.Instance()->MainGroup.PartyId_2;
 
             if (contentId == 0 || groupId == 0 || groupId2 == 0) {
-                Share.Update(string.Empty, 0, 0, []);
+                {
+                    //Disconnects the client from the server if there are no or not enough players in the party
+                    if (partyList.Length is 0 or < MinimumPartySizeForConnection)
+                    {
+                        Share.Disconnect();
+                    }
+                    else if(partyList.Length >= MinimumPartySizeForConnection)
+                        Share.Update(string.Empty, 0, 0, []);
+                }
             } else {
                 var party = GroupManager.Instance()->MainGroup.PartyMembers[..GroupManager.Instance()->MainGroup.MemberCount].ToArray()
                     .Where(p => p.ContentId != 0 && p.ContentId != contentId)
@@ -144,8 +155,13 @@ public unsafe class Plugin : Window, IDalamudPlugin {
 
                         return id;
                     });
-
-                Share.Update(MakeId(contentId, groupId, groupId2), LocalPlayerMapState.Instance.TreasureHuntRankId, LocalPlayerMapState.Instance.TreasureSpotId, party);
+                //Disconnects the client from the server if there are no or not enough players in the party
+                if (partyList.Length is 0 or < MinimumPartySizeForConnection)
+                {
+                    Share.Disconnect();
+                }
+                else if(partyList.Length >= MinimumPartySizeForConnection)
+                    Share.Update(MakeId(contentId, groupId, groupId2), LocalPlayerMapState.Instance.TreasureHuntRankId, LocalPlayerMapState.Instance.TreasureSpotId, party);
             }
             
             UpdateMapIcons();
@@ -302,7 +318,7 @@ public unsafe class Plugin : Window, IDalamudPlugin {
                 ImGui.Button("Disconnected", buttonSize);
         }
     }
-
+    
     public override void OnClose() {
         Config.WindowOpen = false;
         base.OnClose();
