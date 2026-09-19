@@ -1,8 +1,10 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.IO;
 using System.Numerics;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using SimpleMapTrackerPlus;
 using MapType = Lumina.Excel.Sheets.MapType;
 
 namespace SimpleMapTracker;
@@ -13,6 +15,8 @@ public class PlayerMapState {
     public virtual uint TreasureHuntRankId { get; set; }
     public virtual ushort TreasureSpotId { get; set; }
 
+    public List<MapSearchItem> Maps { get; set; } = new();
+    
     public TreasureHuntRank? TreasureHuntRank =>
         TreasureHuntRankId == 0
             ? null
