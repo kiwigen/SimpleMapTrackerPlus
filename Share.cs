@@ -6,6 +6,7 @@ using System.Net.WebSockets;
 using System.Threading.Tasks;
 using Dalamud.Plugin.Services;
 using Newtonsoft.Json;
+using SimpleMapTrackerPlus;
 using Websocket.Client;
 
 namespace SimpleMapTracker;
@@ -13,15 +14,22 @@ namespace SimpleMapTracker;
 public class MapIdentifier {
     [JsonProperty("mapType")] public uint TreasureHuntRankId;
     [JsonProperty("mapSpot")] public ushort TreasureSpot;
-
+    [JsonProperty("maps")] public List<MapSearchItem> Maps = new();
     public override string ToString() {
         return $"{TreasureHuntRankId}.{TreasureSpot}";
     }
 }
 
+public class InventoryMap
+{
+    [JsonProperty("mapName")] public string MapName;
+    [JsonProperty("amount")] public int Amount;
+}
+
 public class ShareData : MapIdentifier {
     [JsonProperty("user")] public string User = string.Empty;
     [JsonProperty("party")] public Dictionary<string, MapIdentifier?> Party = new();
+    
     public override string ToString() {
         return $"{User} - {TreasureHuntRankId}.{TreasureSpot}";
     }
@@ -54,7 +62,7 @@ public class Share : IDisposable, IAsyncDisposable {
         Plugin.Log.Debug("Reconnected");
     }
 
-    public void Update(string user, uint rank, ushort spot, IEnumerable<string> party) {
+    public void Update(string user, uint rank, ushort spot, IEnumerable<string> party, IEnumerable<MapSearchItem> maps) {
         if(!IsConnected)
             Setup();
         
@@ -64,6 +72,7 @@ public class Share : IDisposable, IAsyncDisposable {
         foreach (var member in Data.Party.Keys.Where(p => !party.Contains(p))) 
             Data.Party.Remove(member);
         foreach (var member in party) Data.Party.TryAdd(member, null);
+        Data.Maps = maps.ToList();
         var dataJson = JsonConvert.SerializeObject(Data);
         Log.Debug($"Updated JSON to send: {dataJson}");
         if (updated.ElapsedMilliseconds <= 30000 && sharedData == dataJson) return; 
@@ -77,6 +86,7 @@ public class Share : IDisposable, IAsyncDisposable {
         if (msg.Text == null) return;
         try {
             var updateData = JsonConvert.DeserializeObject<ShareData>(msg.Text);
+            Log.Debug($"Received: {updateData}");
             if (updateData == null) return;
             foreach (var p in updateData.Party) {
                 if (Data.Party.ContainsKey(p.Key)) Data.Party[p.Key] = p.Value;

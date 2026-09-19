@@ -21,6 +21,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.Interop;
 using Lumina.Excel.Sheets;
+using SimpleMapTrackerPlus;
 
 namespace SimpleMapTracker;
 
@@ -36,13 +37,15 @@ public unsafe class Plugin : Window, IDalamudPlugin {
     private readonly ICommandManager commandManager;
     private readonly WindowSystem windowSystem;
     private readonly ConfigWindow configWindow;
+    private readonly MapsWindow mapsWindow;
     private readonly IPartyList partyList;
     private readonly IGameInventory  gameInventory;
-    private const int MinimumPartySizeForConnection = 3;
+    private const int MinimumPartySizeForConnection = 0;
     
     public Plugin(IDalamudPluginInterface pluginInterface, IFramework framework, IDataManager dataManager, IGameInteropProvider gameInteropProvider, IPluginLog pluginLog, IGameGui gameGui, IGameInventory gameInventory, ICommandManager commandManager, IPartyList partyList) : base("Simple Map Tracker", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoResize) {
         Config = pluginInterface.GetPluginConfig() as Config ?? new Config();
         configWindow = new ConfigWindow(Config, pluginInterface);
+        mapsWindow = new MapsWindow();
         RespectCloseHotkey = false;
         this.pluginInterface = pluginInterface;
         this.gameGui = gameGui;
@@ -57,11 +60,12 @@ public unsafe class Plugin : Window, IDalamudPlugin {
         windowSystem = new WindowSystem(nameof(SimpleMapTracker));
         windowSystem.AddWindow(this);
         windowSystem.AddWindow(configWindow);
+        windowSystem.AddWindow(mapsWindow);
         
         pluginInterface.UiBuilder.Draw += windowSystem.Draw;
         pluginInterface.UiBuilder.OpenMainUi += Toggle;
         pluginInterface.UiBuilder.OpenConfigUi += configWindow.Toggle;
-
+        
         commandManager.AddHandler("/maps", new CommandInfo((_, _) => Toggle()) { ShowInHelp = true, HelpMessage = "Open the Simple Map Tracker window" });
         framework.Update += FrameworkUpdate;
         IsOpen = Config.WindowOpen;
@@ -134,15 +138,19 @@ public unsafe class Plugin : Window, IDalamudPlugin {
 
             if (contentId == 0 || groupId == 0 || groupId2 == 0) {
                 {
+                    Log.Debug("First option");
                     //Disconnects the client from the server if there are no or not enough players in the party
                     if (partyList.Length is 0 or < MinimumPartySizeForConnection)
-                    {
+                    {Log.Debug("First Disconnect");
                         Share.Disconnect();
                     }
-                    else if(partyList.Length >= MinimumPartySizeForConnection)
-                        Share.Update(string.Empty, 0, 0, []);
+                    else 
+                    if(partyList.Length >= MinimumPartySizeForConnection)
+                        Share.Update(string.Empty, 0, 0, [], []);
                 }
-            } else {
+            } else 
+            {
+                Log.Debug("First option");
                 var party = GroupManager.Instance()->MainGroup.PartyMembers[..GroupManager.Instance()->MainGroup.MemberCount].ToArray()
                     .Where(p => p.ContentId != 0 && p.ContentId != contentId)
                     .Select(p => {
@@ -151,6 +159,7 @@ public unsafe class Plugin : Window, IDalamudPlugin {
                         if (Share.Data.Party.TryGetValue(id, out var sharedPartyMember) && sharedPartyMember != null) {
                             state.TreasureHuntRankId = sharedPartyMember.TreasureHuntRankId;
                             state.TreasureSpotId = sharedPartyMember.TreasureSpot;
+                            state.Maps = sharedPartyMember.Maps;
                         }
 
                         return id;
@@ -158,10 +167,17 @@ public unsafe class Plugin : Window, IDalamudPlugin {
                 //Disconnects the client from the server if there are no or not enough players in the party
                 if (partyList.Length is 0 or < MinimumPartySizeForConnection)
                 {
+                    Log.Debug("Second Disconnect");
                     Share.Disconnect();
                 }
-                else if(partyList.Length >= MinimumPartySizeForConnection)
-                    Share.Update(MakeId(contentId, groupId, groupId2), LocalPlayerMapState.Instance.TreasureHuntRankId, LocalPlayerMapState.Instance.TreasureSpotId, party);
+                else 
+                if(partyList.Length >= MinimumPartySizeForConnection)
+                {
+                    var tempMaps = GetMapsFromInventory().ToList();
+                    Share.Update(MakeId(contentId, groupId, groupId2), LocalPlayerMapState.Instance.TreasureHuntRankId,
+                        LocalPlayerMapState.Instance.TreasureSpotId, party,tempMaps);
+                    LocalPlayerMapState.Instance.Maps = tempMaps;
+                }
             }
             
             UpdateMapIcons();
@@ -258,6 +274,36 @@ public unsafe class Plugin : Window, IDalamudPlugin {
         return playerList;
     }
 
+
+    public IEnumerable<MapSearchItem> GetMapsFromInventory()
+    {
+        GameInventoryType[] inventoryTypes = new[]
+        {
+            GameInventoryType.Inventory1, GameInventoryType.Inventory2,
+            GameInventoryType.Inventory3, GameInventoryType.Inventory4,
+            GameInventoryType.SaddleBag1, GameInventoryType.SaddleBag2,
+            GameInventoryType.PremiumSaddleBag1, GameInventoryType.PremiumSaddleBag2,
+            GameInventoryType.KeyItems
+        };
+        List<MapSearchItem> maps = new List<MapSearchItem>();
+        foreach (var inventoryType in inventoryTypes)
+        {
+            var items = gameInventory.GetInventoryItems(inventoryType);
+            var itemSheet = DataManager.GetExcelSheet<Item>();
+            var foundMaps =
+                items.ToArray()
+                    .Where(x => itemSheet.GetRowOrDefault(x.BaseItemId)?.Name.ToString().Contains(" Map")??false)
+                    .Select(x =>  new MapSearchItem(){Name = itemSheet.GetRowOrDefault(x.BaseItemId)?.Name.ToString()!, BaseId =  x.BaseItemId}).ToList();
+            maps.AddRange(foundMaps);
+
+        }
+        maps = maps.GroupBy(x => x.BaseId)
+            .Select(x => new MapSearchItem(){ BaseId = x.Key, Amount = x.Count(), Name = x.First().Name }).ToList();
+        foreach (var map in maps)
+            Log.Debug($"Amount:{map.Amount} - {map.Name} ({map.BaseId})");
+        return maps;
+    }
+
     public override bool DrawConditions() {
         return base.DrawConditions() && PlayerState.Instance()->ContentId != 0;
     }
@@ -286,6 +332,12 @@ public unsafe class Plugin : Window, IDalamudPlugin {
 #if DEBUG
                     if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Content ID: {p.ContentId:X}");
 #endif
+                    if (ImGui.IsItemClicked())
+                    {
+                        mapsWindow.SetMaps(p.Maps);
+                        mapsWindow.IsOpen = true;
+                        mapsWindow.BringToFront();
+                    };
                     ImGui.TableNextColumn();
 
                     using (ImRaii.PushFont(UiBuilder.IconFont)) {
